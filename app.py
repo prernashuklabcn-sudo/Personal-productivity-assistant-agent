@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 
-JSON_FILE = 'tasks.json'
+JSON_FILE = '/tmp/tasks.json'
 
 def load_data():
     if not os.path.exists(JSON_FILE):
