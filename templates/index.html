@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Productivity & Study Tracker Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+    <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h1>Productivity Agent</h1>
+            <p style="color: #94a3b8; margin: 0;">Your Personal Focus & Goal Management Companion</p>
+        </div>
+        <div style="text-align: right; display: flex; align-items: center; gap: 15px;">
+            <div>
+                <span style="font-size: 0.9rem; color: #94a3b8;">Overall Performance</span>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #27ae60;">{{ overall_pct }}%</div>
+            </div>
+            <form action="/reset_data" method="POST" style="margin: 0;" onsubmit="return confirm('Do you want to erase/reset all data>');">
+                <button type="submit" style="background-color: #e74c3c; padding: 8px 12px; font-size: 0.85rem; width: auto;">Reset / Erase</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="motivator-box">
+        🤖 <b>Agent Message:</b> {{ quote }}
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>🎯 Add Study Focus & Target</h3>
+            <form action="/add_task" method="POST">
+                <input type="text" name="subject" placeholder="Subject Name (e.g., Polity, Maths)" required>
+                <input type="number" name="target_min" placeholder="Target Time (in minutes)" required>
+                <button type="submit">Set Subject Target</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>📌 Add Highlighter Sticky To-Do</h3>
+            <form action="/add_todo" method="POST">
+                <input type="text" name="todo_text" placeholder="Write quick to-do task..." required>
+                <button type="submit" style="background-color: #f39c12;">Add to Sticky Note</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Subjects & Live Countdown Timer Section -->
+    <div class="card" style="margin-top: 20px;">
+        <h3>⏳ Subjects, Target Timers & Progress</h3>
+        {% if tasks %}
+            {% for task in tasks %}
+            <div style="background: #f8f9fa; padding: 15px; margin-bottom: 12px; border-radius: 6px; border-left: 4px solid #3498db; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <b>{{ task.subject }}</b> <br>
+                    <small style="color: #666;">Target: {{ task.target_min }} mins | Studied: {{ task.studied_min }} mins</small>
+                    <!-- Live Countdown Display Box -->
+                    <div id="timer-display-{{ task.id }}" style="font-family: monospace; font-size: 1.1rem; color: #e67e22; margin-top: 5px; font-weight: bold;">Ready to start</div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 1.2rem; font-weight: bold; color: #2980b9;">{{ task.percentage }}%</span><br>
+                    
+                    <!-- Buttons Container for Start and Stop -->
+                    <div style="margin-top: 6px; display: flex; gap: 5px; justify-content: flex-end;">
+                        <button id="btn-start-{{ task.id }}" type="button" class="start-timer-btn" data-id="{{ task.id }}" data-target="{{ task.target_min }}" style="padding: 5px 10px; font-size: 0.75rem; background: #27ae60; cursor: pointer; border: none; color: white; border-radius: 4px; font-weight: bold;">Start Timer</button>
+                        
+                        <button id="btn-stop-{{ task.id }}" type="button" class="stop-timer-btn" data-id="{{ task.id }}" style="padding: 5px 10px; font-size: 0.75rem; background: #e74c3c; cursor: pointer; border: none; color: white; border-radius: 4px; font-weight: bold; display: none;">Stop & Save</button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: #888; text-align: center; margin: 15px 0;">No subjects added yet. Add a subject to start your live countdown timer!</p>
+        {% endif %}
+        
+        <div style="margin-top: 15px; padding: 10px; background: #e8f8f5; border-radius: 5px; text-align: center; font-weight: bold; color: #16a085;">
+            Total Study Time: {{ total_studied }} mins / {{ total_target }} mins Target
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 20px;">
+        <h3>📝 Highlighter Sticky Notes Board</h3>
+        <div class="sticky-notes-container">
+            {% for todo in todos %}
+            <div class="sticky-note">
+                📌 {{ todo }}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript for Countdown with Pause/Stop Support -->
+<script>
+    let audioCtx = null;
+    let activeTimers = {}; // Store active timer intervals for stopping them
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function playAlarm() {
+        try {
+            initAudio();
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            let oscillator = audioCtx.createOscillator();
+            let gainNode = audioCtx.createGain();
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 1.5);
+        } catch (e) {
+            console.log("Audio error: ", e);
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        // Start Button Listeners
+        document.querySelectorAll(".start-timer-btn").forEach(function(button) {
+            button.addEventListener("click", function() {
+                let taskId = this.getAttribute("data-id");
+                let targetMinutes = parseInt(this.getAttribute("data-target"));
+                startCountdown(taskId, targetMinutes);
+            });
+        });
+
+        // Stop Button Listeners
+        document.querySelectorAll(".stop-timer-btn").forEach(function(button) {
+            button.addEventListener("click", function() {
+                let taskId = this.getAttribute("data-id");
+                stopCountdown(taskId);
+            });
+        });
+    });
+
+    function startCountdown(taskId, targetMinutes) {
+        initAudio();
+        
+        let display = document.getElementById('timer-display-' + taskId);
+        let startBtn = document.getElementById('btn-start-' + taskId);
+        let stopBtn = document.getElementById('btn-stop-' + taskId);
+        
+        startBtn.style.display = "none";
+        stopBtn.style.display = "inline-block";
+
+        let totalSeconds = targetMinutes * 60;
+        let elapsedSeconds = 0;
+
+        activeTimers[taskId] = {
+            interval: setInterval(function() {
+                if (totalSeconds <= 0) {
+                    clearInterval(activeTimers[taskId].interval);
+                    playAlarm();
+                    display.innerText = "🎉 Target Completed!";
+                    
+                    // Clear message pop-up when time is up
+                    alert("🚨 TIME UP! Target completed for this subject. Great job!");
+                    
+                    submitStudiedTime(taskId, targetMinutes);
+                    return;
+                }
+
+                let minutes = Math.floor(totalSeconds / 60);
+                let seconds = totalSeconds % 60;
+
+                display.innerText = "⏱️ Time Left: " + (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+                
+                totalSeconds--;
+                elapsedSeconds++;
+                activeTimers[taskId].elapsedMins = Math.ceil(elapsedSeconds / 60);
+            }, 1000),
+            elapsedMins: 0
+        };
+    }
+    function stopCountdown(taskId) {
+        if (activeTimers[taskId]) {
+            clearInterval(activeTimers[taskId].interval);
+            let studiedSoFar = activeTimers[taskId].elapsedMins || 0;
+            
+            if (studiedSoFar > 0) {
+                alert("Timer stopped. Saving " + studiedSoFar + " minutes of study!");
+                submitStudiedTime(taskId, studiedSoFar);
+            } else {
+                alert("Timer stopped before completing a full minute. No time added.");
+                location.reload();
+            }
+        }
+    }
+
+    function submitStudiedTime(taskId, mins) {
+        let form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/log_study/' + taskId;
+
+        let input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'studied_mins';
+        input.value = mins;
+
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    }
+</script>
+
+</body>
+</html>
